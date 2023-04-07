@@ -9,18 +9,19 @@
 //!
 //! ---
 
+/* before 1.68
 #![feature(alloc_error_handler)]
+*/
+
 #![no_main]
 #![no_std]
 
 extern crate alloc;
 use panic_halt as _;
 
-use self::alloc::vec;
-use core::alloc::Layout;
+use alloc::vec;
 
 use alloc_cortex_m::CortexMHeap;
-use cortex_m::asm;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::{hprintln, debug};
 
@@ -38,7 +39,7 @@ fn main() -> ! {
     // Growable array allocated on the heap
     let xs = vec![0, 1, 2];
 
-    hprintln!("{:?}", xs).unwrap();
+    hprintln!("{:?}", xs);
 
     // exit QEMU
     // NOTE do not run this on hardware; it can corrupt OpenOCD state
@@ -48,9 +49,11 @@ fn main() -> ! {
 }
 
 // define what happens in an Out Of Memory (OOM) condition
+/* before 1.68
 #[alloc_error_handler]
 fn alloc_error(_layout: Layout) -> ! {
     asm::bkpt();
 
     loop {}
 }
+*/

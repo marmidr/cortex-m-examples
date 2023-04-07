@@ -36,11 +36,13 @@ use stm32f3::stm32f303::{interrupt, Interrupt, NVIC};
 #[entry]
 fn main() -> ! {
     let p = cortex_m::Peripherals::take().unwrap();
-
     let mut syst = p.SYST;
-    let mut nvic = p.NVIC;
 
-    nvic.enable(Interrupt::EXTI0);
+    // let mut nvic = p.NVIC;
+    // nvic.enable(Interrupt::EXTI0);
+    unsafe {
+        NVIC::unmask(Interrupt::EXTI0);
+    }
 
     // configure the system timer to wrap around every second
     syst.set_clock_source(SystClkSource::Core);
@@ -58,5 +60,5 @@ fn main() -> ! {
 
 #[interrupt]
 fn EXTI0() {
-    hprint!(".").unwrap();
+    hprint!(".");
 }

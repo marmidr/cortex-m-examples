@@ -18,21 +18,28 @@ use alloc::vec;
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 
-use panic_halt as _;
+// use panic_halt as _;
+use panic_semihosting as _;
 use alloc_cortex_m::CortexMHeap;
 use cortex_m_rt::entry;
-use cortex_m_semihosting::hprint;
+use cortex_m_semihosting::{hprint, debug};
 
 // ---------------------------------------------------------------------------------------------- //
 
 struct DemoMiniPal {
     line_buff: String,
+    sleep_ms: Box<dyn Fn(u16) + Sync + Send>,
 }
+
+unsafe impl Sync for DemoMiniPal {}
 
 impl Default for DemoMiniPal {
     fn default() -> Self {
+        fn slp(_: u16) {}
+
         DemoMiniPal {
             line_buff: String::with_capacity(100),
+            sleep_ms: Box::new(slp)
         }
     }
 }
@@ -59,11 +66,11 @@ impl rtwins::pal::Pal for DemoMiniPal {
 
         hprint!("{}", self.line_buff);
         self.line_buff.clear();
+        self.sleep(1);
     }
 
-    fn sleep(&self, _ms: u16) {
-        // TODO:
-        // cortex_m::delay::Delay::delay_ms(ms);
+    fn sleep(&self, ms: u16) {
+        self.sleep_ms.as_ref()(ms);
     }
 }
 
@@ -216,18 +223,23 @@ impl rtwins::wgt::WindowState for MainWndState {
 }
 
 // ---------------------------------------------------------------------------------------------- //
+
 // this is the allocator the application will use
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 
 #[entry]
 fn main() -> ! {
-    const HEAP_SIZE: usize = 10240; // in bytes
+    const HEAP_SIZE: usize = 1024 * 2; // in bytes
     // Initialize the allocator BEFORE you use it
     unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
 
     // start the TUI interface
     tui();
+
+    // exit QEMU
+    // NOTE do not run this on hardware; it can corrupt OpenOCD state
+    debug::exit(debug::EXIT_SUCCESS);
 
     loop {}
 }
@@ -258,10 +270,20 @@ impl InputSemiHost {
 }
 
 fn tui() {
-    let mut ws_main = MainWndState::default();
+    let cp = cortex_m::Peripherals::take().unwrap();
+    let mut delay = cortex_m::delay::Delay::new(cp.SYST, 10_000_000);
+
+    let mut pal = Box::<DemoMiniPal>::default();
+    pal.sleep_ms = Box::new(|_ms: u16| {
+        // TODO:
+        // delay.delay_ms(ms as u32);
+    });
 
     // replace default PAL with our own:
-    TERM.try_lock().unwrap().pal = Box::<DemoMiniPal>::default();
+    TERM.try_lock().unwrap().pal = pal;
+
+    // create window state:
+    let mut ws_main = MainWndState::default();
 
     // configure terminal
     if let Some(mut term_guard) = TERM.try_lock() {
@@ -276,7 +298,14 @@ fn tui() {
 
     TERM.try_lock().unwrap().draw_wnd(&mut ws_main);
     rtwins::tr_info!("Press Ctrl-D to quit");
+    // FIXME: cfg! isn't working
+    if cfg!(qemu) {
+        rtwins::tr_info!("{}Running from QEMU{}", rtwins::esc::FG_AQUA, rtwins::esc::FG_DEFAULT);
+    }
+    // hello_from_qemu();
     rtwins::tr_flush!(&mut TERM.try_lock().unwrap());
+
+    delay.delay_ms(2_000);
 
     let mut inp = InputSemiHost::new(10);
     let mut ique = rtwins::input_decoder::InputQue::new();
@@ -301,6 +330,11 @@ fn tui() {
 
         TERM.try_lock().unwrap().draw_invalidated(&mut ws_main);
         rtwins::tr_flush!(&mut TERM.try_lock().unwrap());
+
+        // if cfg!(qemu) {
+            // FIXME: conditional for one-shot run
+            break;
+        // }
     }
 
     // epilogue
@@ -309,9 +343,15 @@ fn tui() {
         rtwins::tr_flush!(&mut term_guard);
         term_guard.mouse_mode(rtwins::MouseMode::Off);
         term_guard.trace_area_clear();
+
         // clear logs below the cursor
         let logs_row = term_guard.trace_row;
         term_guard.move_to(0, logs_row);
         term_guard.flush_buff();
     }
+}
+
+#[cfg(qemu)]
+fn hello_from_qemu() {
+    rtwins::tr_info!("{}Running from QEMU{}", rtwins::esc::FG_LIGHT_CORAL, rtwins::esc::FG_DEFAULT);
 }

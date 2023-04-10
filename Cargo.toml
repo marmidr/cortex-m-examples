@@ -15,7 +15,8 @@ rtwins = { path = "../../rtwins" }
 # rtwins = { git = "https://github.com/marmidr/rtwins.git", branch = "dev"}
 
 # Uncomment for the panic example.
-# panic-itm = "0.4.1"
+panic-itm = "0.4.1"
+panic-semihosting = "0.6.0"
 
 # Uncomment for the allocator example.
 alloc-cortex-m = "0.4.4"
@@ -27,13 +28,13 @@ alloc-cortex-m = "0.4.4"
 # features = ["stm32f303", "rt"]
 # version = "0.15.1"
 
-# this lets you use `cargo fix`!
-# [[bin]]
-# name = "test"
-# test = false
-# bench = false
+[features]
+qemu = []
+defaul = ["qemu"]
 
 [profile.release]
 codegen-units = 1 # better optimizations
 debug = true # symbols are nice and they don't increase the size on Flash
+# strip = "debuginfo"
 lto = true # better optimizations
+opt-level = 'z'  # pptimize for size. 59kB -> 39kB

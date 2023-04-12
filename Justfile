@@ -20,8 +20,8 @@ br *ARGS:
 
 # build dbg and run in QEMU, eg: just qemu rtwins
 qemu *ARGS:
-    cargo b --example {{ARGS}}
-    cargo size --example {{ARGS}} -- -B
+    cargo b --example {{ARGS}} --features "qemu"
+    cargo size --example {{ARGS}} --features "qemu" -- -B
     qemu-system-arm \
         -cpu cortex-m3 \
         -machine lm3s6965evb \

@@ -12,34 +12,31 @@ use rtwins::wgt::*;
 use rtwins::TERM;
 
 extern crate alloc;
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::boxed::Box;
 
 // use panic_halt as _;
-use panic_semihosting as _;
 use alloc_cortex_m::CortexMHeap;
 use cortex_m_rt::entry;
-use cortex_m_semihosting::{hprint, debug};
+use cortex_m_semihosting::{debug, hprint};
+use panic_semihosting as _;
+use try_lock::TryLock;
 
 // ---------------------------------------------------------------------------------------------- //
 
 struct DemoMiniPal {
     line_buff: String,
-    sleep_ms: Box<dyn Fn(u16) + Sync + Send>,
+    delay: TryLock<cortex_m::delay::Delay>,
 }
 
-unsafe impl Sync for DemoMiniPal {}
-
-impl Default for DemoMiniPal {
-    fn default() -> Self {
-        fn slp(_: u16) {}
-
+impl DemoMiniPal {
+    fn new(d: cortex_m::delay::Delay) -> Self {
         DemoMiniPal {
             line_buff: String::with_capacity(100),
-            sleep_ms: Box::new(slp)
+            delay: TryLock::new(d),
         }
     }
 }
@@ -70,7 +67,9 @@ impl rtwins::pal::Pal for DemoMiniPal {
     }
 
     fn sleep(&self, ms: u16) {
-        self.sleep_ms.as_ref()(ms);
+        if let Some(mut d) = self.delay.try_lock() {
+            d.delay_ms(ms as u32);
+        }
     }
 }
 
@@ -201,8 +200,7 @@ impl rtwins::wgt::WindowState for MainWndState {
         if let Some(mut term_guard) = TERM.try_lock() {
             term_guard.draw(self, &[wid]);
             term_guard.flush_buff();
-        }
-        else {
+        } else {
             rtwins::tr_warn!("Cannot lock the term");
         }
     }
@@ -231,7 +229,7 @@ static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 #[entry]
 fn main() -> ! {
     const HEAP_SIZE: usize = 1024 * 2; // in bytes
-    // Initialize the allocator BEFORE you use it
+                                       // Initialize the allocator BEFORE you use it
     unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
 
     // start the TUI interface
@@ -255,7 +253,7 @@ impl InputSemiHost {
     /// Createas new TTY input reader with given timeout in [ms];
     /// the timeout applies when calling `read_input()`
     pub fn new(timeout_ms: u16) -> Self {
-        InputSemiHost{
+        InputSemiHost {
             input_timeout_ms: timeout_ms,
             input_buff: [0u8; rtwins::esc::SEQ_MAX_LENGTH],
             input_len: 0,
@@ -271,16 +269,13 @@ impl InputSemiHost {
 
 fn tui() {
     let cp = cortex_m::Peripherals::take().unwrap();
-    let mut delay = cortex_m::delay::Delay::new(cp.SYST, 10_000_000);
-
-    let mut pal = Box::<DemoMiniPal>::default();
-    pal.sleep_ms = Box::new(|_ms: u16| {
-        // TODO:
-        // delay.delay_ms(ms as u32);
-    });
 
     // replace default PAL with our own:
-    TERM.try_lock().unwrap().pal = pal;
+    {
+        let delay = cortex_m::delay::Delay::new(cp.SYST, 20_000_000);
+        let pal = Box::new(DemoMiniPal::new(delay));
+        TERM.try_lock().unwrap().pal = pal;
+    }
 
     // create window state:
     let mut ws_main = MainWndState::default();
@@ -298,14 +293,16 @@ fn tui() {
 
     TERM.try_lock().unwrap().draw_wnd(&mut ws_main);
     rtwins::tr_info!("Press Ctrl-D to quit");
-    // FIXME: cfg! isn't working
-    if cfg!(qemu) {
-        rtwins::tr_info!("{}Running from QEMU{}", rtwins::esc::FG_AQUA, rtwins::esc::FG_DEFAULT);
+    if cfg!(feature = "qemu") {
+        rtwins::tr_info!(
+            "{}Running from QEMU{}",
+            rtwins::esc::FG_BLUE_VIOLET,
+            rtwins::esc::FG_DEFAULT
+        );
     }
-    // hello_from_qemu();
     rtwins::tr_flush!(&mut TERM.try_lock().unwrap());
 
-    delay.delay_ms(2_000);
+    TERM.try_lock().unwrap().pal.as_mut().sleep(2_000);
 
     let mut inp = InputSemiHost::new(10);
     let mut ique = rtwins::input_decoder::InputQue::new();
@@ -319,8 +316,7 @@ fn tui() {
         if q {
             rtwins::tr_info!("Exit requested");
             break;
-        }
-        else if !inp_seq.is_empty() {
+        } else if !inp_seq.is_empty() {
             ique.extend(inp_seq.iter());
 
             while dec.decode_input_seq(&mut ique, &mut ii) > 0 {
@@ -331,10 +327,10 @@ fn tui() {
         TERM.try_lock().unwrap().draw_invalidated(&mut ws_main);
         rtwins::tr_flush!(&mut TERM.try_lock().unwrap());
 
-        // if cfg!(qemu) {
-            // FIXME: conditional for one-shot run
+        if cfg!(feature = "qemu") {
+            // exit the loop for emulated run
             break;
-        // }
+        }
     }
 
     // epilogue
@@ -349,9 +345,4 @@ fn tui() {
         term_guard.move_to(0, logs_row);
         term_guard.flush_buff();
     }
-}
-
-#[cfg(qemu)]
-fn hello_from_qemu() {
-    rtwins::tr_info!("{}Running from QEMU{}", rtwins::esc::FG_LIGHT_CORAL, rtwins::esc::FG_DEFAULT);
 }

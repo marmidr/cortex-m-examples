@@ -4,7 +4,8 @@
 #![no_std]
 
 use rtwins::colors::{ColorBg, ColorFg};
-use rtwins::common::*;
+use rtwins::{common::*, tr_err};
+use rtwins::tr_debug;
 use rtwins::input::*;
 use rtwins::wgt;
 use rtwins::wgt::prop;
@@ -228,9 +229,11 @@ static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 
 #[entry]
 fn main() -> ! {
-    const HEAP_SIZE: usize = 1024 * 2; // in bytes
-                                       // Initialize the allocator BEFORE you use it
-    unsafe { ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE) }
+    // Initialize the allocator BEFORE you use it
+    unsafe {
+        const HEAP_SIZE: usize = 1024 * 2; // in bytes
+        ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE)
+    }
 
     // start the TUI interface
     tui();
@@ -244,26 +247,55 @@ fn main() -> ! {
 
 #[allow(dead_code)]
 pub struct InputSemiHost {
-    input_timeout_ms: u16,
     input_buff: [u8; rtwins::esc::SEQ_MAX_LENGTH],
-    input_len: u8,
+    input_len: usize,
+    ifd: isize
 }
 
 impl InputSemiHost {
-    /// Createas new TTY input reader with given timeout in [ms];
-    /// the timeout applies when calling `read_input()`
-    pub fn new(timeout_ms: u16) -> Self {
+    /// Createas a new Cortex-M semihosting input reader
+    pub fn new() -> Self {
+        let ifd = unsafe {
+            cortex_m_semihosting::syscall!(OPEN, ":tt\0".as_ptr(),
+                cortex_m_semihosting::nr::open::R, 3) as isize
+        };
+
+        if ifd == -1 {
+            tr_err!("Unable to open stdin");
+        }
+
         InputSemiHost {
-            input_timeout_ms: timeout_ms,
             input_buff: [0u8; rtwins::esc::SEQ_MAX_LENGTH],
             input_len: 0,
+            ifd
         }
     }
 
-    /// Returns tuple with ESC sequence slice and bool marker set to true,
-    /// if application termination was requested (C-d)
-    pub fn read_input(&mut self) -> (&[u8], bool) {
-        (&self.input_buff[..0], false)
+    /// Returns tuple with ESC sequence slice
+    pub fn read_input(&mut self) -> &[u8] {
+        self.input_len = self.hstdin();
+
+        if self.input_len != 0 {
+            &self.input_buff[..self.input_len as usize]
+        }
+        else {
+            &[]
+        }
+    }
+
+    fn hstdin(&self) -> usize {
+        // TODO: for a few first seconds after start reads nothing
+        let rc = unsafe {
+            // https://developer.arm.com/documentation/dui0471/e/semihosting/sys-read--0x06-
+            // READC - not implemented
+            let rc = cortex_m_semihosting::syscall!(READ, self.ifd, self.input_buff.as_ptr(), self.input_buff.len());
+            // 8 -> 0 bytes read
+            // 5 -> 3 bytes read
+            rc
+        };
+
+        // returns number of bytes read
+        self.input_buff.len() - rc
     }
 }
 
@@ -302,24 +334,28 @@ fn tui() {
     }
     rtwins::tr_flush!(&mut TERM.try_lock().unwrap());
 
-    TERM.try_lock().unwrap().pal.as_mut().sleep(2_000);
-
-    let mut inp = InputSemiHost::new(10);
+    let mut inp = InputSemiHost::new();
     let mut ique = rtwins::input_decoder::InputQue::new();
     let mut dec = rtwins::input_decoder::Decoder::default();
     let mut ii = rtwins::input::InputInfo::default();
 
-    // main loop
-    loop {
-        let (inp_seq, q) = inp.read_input();
+    'mainloop: loop  {
+        let inp_seq = inp.read_input();
 
-        if q {
-            rtwins::tr_info!("Exit requested");
-            break;
-        } else if !inp_seq.is_empty() {
+        if !inp_seq.is_empty() {
+            // tr_debug!("bytes: {:?}", inp_seq);
             ique.extend(inp_seq.iter());
 
             while dec.decode_input_seq(&mut ique, &mut ii) > 0 {
+                // check for Ctrl+D
+                if let InputEvent::Char(ref c) = ii.evnt {
+                    if c.utf8seq[0] == b'D' && ii.kmod.has_ctrl() {
+                        rtwins::tr_info!("Exit requested");
+                        break 'mainloop;
+                    }
+                }
+
+                tr_debug!("Input: {}", ii.name);
                 let _key_handled = wgt::process_input(&mut ws_main, &ii);
             }
         }
@@ -327,20 +363,23 @@ fn tui() {
         TERM.try_lock().unwrap().draw_invalidated(&mut ws_main);
         rtwins::tr_flush!(&mut TERM.try_lock().unwrap());
 
+        // wait for a key
         if cfg!(feature = "qemu") {
-            // exit the loop for emulated run
-            break;
+            TERM.try_lock().unwrap().pal.as_mut().sleep(50);
         }
     }
 
     // epilogue
     {
         let mut term_guard = TERM.try_lock().unwrap();
-        rtwins::tr_flush!(&mut term_guard);
         term_guard.mouse_mode(rtwins::MouseMode::Off);
+        rtwins::tr_flush!(&mut term_guard);
+
+        term_guard.pal.as_mut().sleep(1_000);
+        // clear logs below the cursor
         term_guard.trace_area_clear();
 
-        // clear logs below the cursor
+        // set cursor in the expected position
         let logs_row = term_guard.trace_row;
         term_guard.move_to(0, logs_row);
         term_guard.flush_buff();

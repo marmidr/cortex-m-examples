@@ -1,5 +1,5 @@
 {
-    /* 
+    /*
      * Requires the Rust Language Server (rust-analyzer) and Cortex-Debug extensions
      * https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer
      * https://marketplace.visualstudio.com/items?itemName=marus25.cortex-debug
@@ -14,9 +14,9 @@
             "cwd": "${workspaceRoot}",
             "preLaunchTask": "Cargo Build (debug)",
             "runToEntryPoint": "main",
-            "executable": "./target/thumbv7m-none-eabi/debug/{{project-name}}",
+            // "executable": "./target/thumbv7m-none-eabi/debug/{{project-name}}",
             /* Run `cargo build --example hello` and uncomment this line to run semi-hosting example */
-            //"executable": "./target/thumbv7m-none-eabi/debug/examples/hello",
+            "executable": "./target/thumbv7m-none-eabi/debug/examples/rtwins",
             "cpu": "cortex-m3",
             "machine": "lm3s6965evb",
         },

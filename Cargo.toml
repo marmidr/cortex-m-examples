@@ -2,7 +2,7 @@
 authors = ["marmidr"]
 edition = "2021"
 readme = "README.md"
-name = "cm3_tui_demo"
+name = "cm3_examples"
 version = "0.1.0"
 
 [dependencies]
@@ -13,16 +13,14 @@ panic-halt = "0.2.0"
 rustversion = "1.0"
 atomic_once_cell = "0.1.5"
 try-lock = "0.2.4"
-
+alloc-cortex-m = "0.4.4"
+# embedded-alloc = "0.5.0"
 rtwins = { path = "../../rtwins" }
 # rtwins = { git = "https://github.com/marmidr/rtwins.git", branch = "dev"}
 
 # Uncomment for the panic example.
-panic-itm = "0.4.1"
-panic-semihosting = "0.6.0"
-
-# Uncomment for the allocator example.
-alloc-cortex-m = "0.4.4"
+# panic-itm = "0.4.1"
+panic-semihosting = { version = "0.6.0", features = ["exit"] }
 
 # Uncomment for the device example.
 # Update `memory.x`, set target to `thumbv7em-none-eabihf` in `.cargo/config`,
@@ -40,4 +38,4 @@ codegen-units = 1 # better optimizations
 debug = true # symbols are nice and they don't increase the size on Flash
 # strip = "debuginfo"
 lto = true # better optimizations
-opt-level = 'z'  # pptimize for size. 59kB -> 39kB
+opt-level = 'z'  # optimize for size. 59kB -> 39kB

@@ -10,15 +10,18 @@
 default:
     @just --list
 
+# debug-build given example
 b *ARGS:
     cargo b --example {{ARGS}}
     cargo size --example {{ARGS}} -- -B
 
+# release-build given example
 br *ARGS:
     cargo b --release --example {{ARGS}}
     cargo size --example {{ARGS}} --release -- -B
 
-# build dbg and run in QEMU, eg: just qemu rtwins
+# https://docs.rust-embedded.org/book/start/qemu.html
+# debug-build and run in QEMU, eg: just qemu rtwins
 qemu *ARGS:
     cargo b --example {{ARGS}} --features "qemu"
     cargo size --example {{ARGS}} --features "qemu" -- -B
@@ -29,15 +32,19 @@ qemu *ARGS:
         -semihosting-config enable=on,target=native \
         -kernel target/thumbv7m-none-eabi/debug/examples/{{ARGS}}
 
-# TODO: rtwins shows nothing when run by `timeout`
-# TODO: hello hangs and shows nothing when run by `timeout`
-
-qemuto *ARGS:
-    cargo b --example {{ARGS}}
-    cargo size --example {{ARGS}} -- -B
-    timeout 3s qemu-system-arm \
+# runs QEMU with Gdb server
+qemu-gdbserv *ARGS:
+    cargo b --example {{ARGS}} --features "qemu"
+    cargo size --example {{ARGS}} --features "qemu" -- -B
+    qemu-system-arm \
         -cpu cortex-m3 \
         -machine lm3s6965evb \
         -nographic \
         -semihosting-config enable=on,target=native \
+        -gdb tcp::3333 \
+        -S \
         -kernel target/thumbv7m-none-eabi/debug/examples/{{ARGS}}
+
+# attach Gdb to the QEMU gdb server
+gdb-qemu *ARGS:
+    gdb-multiarch -tui -ex "target remote :3333" -ex "b main" -q target/thumbv7m-none-eabi/debug/examples/{{ARGS}}

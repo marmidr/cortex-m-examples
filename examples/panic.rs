@@ -14,11 +14,11 @@
 
 // Reports panic messages to the host stderr using semihosting
 // NOTE to use this you need to uncomment the `panic-semihosting` dependency in Cargo.toml
-// use panic_semihosting as _;
+use panic_semihosting as _;
 
 // Logs panic messages using the ITM (Instrumentation Trace Macrocell)
 // NOTE to use this you need to uncomment the `panic-itm` dependency in Cargo.toml
-use panic_itm as _;
+// use panic_itm as _;
 
 use cortex_m_rt::entry;
 

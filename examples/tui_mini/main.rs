@@ -15,7 +15,6 @@ use rtwins::TERM;
 extern crate alloc;
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -25,60 +24,10 @@ use cortex_m_rt::entry;
 use cortex_m_semihosting::debug;
 // use cortex_m_semihosting::hprint;
 use panic_semihosting as _;
-use try_lock::TryLock;
+// use try_lock::TryLock;
 
-// ---------------------------------------------------------------------------------------------- //
-
-struct DemoMiniPal {
-    line_buff: String,
-    delay: TryLock<cortex_m::delay::Delay>,
-}
-
-impl DemoMiniPal {
-    fn new(d: cortex_m::delay::Delay) -> Self {
-        DemoMiniPal {
-            line_buff: String::with_capacity(100),
-            delay: TryLock::new(d),
-        }
-    }
-}
-
-impl rtwins::pal::Pal for DemoMiniPal {
-    fn write_char_n(&mut self, c: char, repeat: i16) {
-        for _ in 0..repeat {
-            self.line_buff.push(c);
-        }
-    }
-
-    fn write_str_n(&mut self, s: &str, repeat: i16) {
-        self.line_buff.reserve(s.len() * repeat as usize);
-
-        for _ in 0..repeat {
-            self.line_buff.push_str(s);
-        }
-
-        if self.line_buff.len() > 50 {
-            self.flush_buff();
-        }
-    }
-
-    fn flush_buff(&mut self) {
-        // hprint!("{}", self.line_buff);
-
-        if let Ok(ref mut out) = cortex_m_semihosting::hio::hstdout() {
-            let _ = out.write_all(self.line_buff.as_bytes());
-        }
-
-        self.line_buff.clear();
-        self.sleep(50);
-    }
-
-    fn sleep(&self, ms: u16) {
-        if let Some(mut d) = self.delay.try_lock() {
-            d.delay_ms(ms as u32);
-        }
-    }
-}
+#[cfg(not(any(windows, unix)))]
+mod pal_semihosting;
 
 // ---------------------------------------------------------------------------------------------- //
 
@@ -257,68 +206,13 @@ fn main() -> ! {
     loop {}
 }
 
-#[allow(dead_code)]
-pub struct InputSemiHost {
-    input_buff: [u8; rtwins::esc::SEQ_MAX_LENGTH],
-    input_len: usize,
-    stdin_fd: isize
-}
-
-impl InputSemiHost {
-    /// Createas a new Cortex-M semihosting input reader
-    pub fn new() -> Self {
-        let stdin_fd = unsafe {
-            cortex_m_semihosting::syscall!(OPEN, ":tt\0".as_ptr(),
-                cortex_m_semihosting::nr::open::R, 3) as isize
-        };
-
-        if stdin_fd == -1 {
-            rtwins::tr_err!("Unable to open stdin");
-        }
-
-        InputSemiHost {
-            input_buff: [0u8; rtwins::esc::SEQ_MAX_LENGTH],
-            input_len: 0,
-            stdin_fd
-        }
-    }
-
-    /// Returns tuple with ESC sequence slice
-    pub fn read_input(&mut self) -> &[u8] {
-        self.input_len = self.hstdin();
-
-        if self.input_len != 0 {
-            &self.input_buff[..self.input_len as usize]
-        }
-        else {
-            &[]
-        }
-    }
-
-    fn hstdin(&self) -> usize {
-        // TODO: for ~3 seconds after start reads nothing
-        let rc = unsafe {
-            // https://developer.arm.com/documentation/dui0471/e/semihosting/sys-read--0x06-
-            // READC - not implemented
-            let rc = cortex_m_semihosting::syscall!(READ,
-                self.stdin_fd, self.input_buff.as_ptr(), self.input_buff.len());
-            // 8 -> 0 bytes read
-            // 5 -> 3 bytes read
-            rc
-        };
-
-        // returns number of bytes read
-        self.input_buff.len() - rc
-    }
-}
-
 fn tui() {
     let cp = cortex_m::Peripherals::take().unwrap();
 
     // replace default PAL with our own:
     {
         let delay = cortex_m::delay::Delay::new(cp.SYST, 32_000_000);
-        let pal = Box::new(DemoMiniPal::new(delay));
+        let pal = Box::new(pal_semihosting::SemihostingPal::new(delay));
         TERM.try_lock().unwrap().pal = pal;
     }
 
@@ -341,6 +235,7 @@ fn tui() {
     }
 
     rtwins::tr_info!("Press Ctrl-D to quit");
+    rtwins::tr_info!("Size of WND_MAIN_WGTS: {} B", core::mem::size_of_val(&WND_MAIN_WGTS));
 
     if cfg!(feature = "qemu") {
         rtwins::tr_info!(
@@ -351,13 +246,13 @@ fn tui() {
     }
     rtwins::tr_flush!(&mut TERM.try_lock().unwrap());
 
-    let mut inp = InputSemiHost::new();
+    let mut inp = pal_semihosting::InputSemiHost::new();
     let mut ique = rtwins::input_decoder::InputQue::default();
     let mut dec = rtwins::input_decoder::Decoder::default();
     let mut ii = rtwins::input::InputInfo::default();
 
     'mainloop: loop  {
-        let inp_seq = inp.read_input();
+        let inp_seq = inp.read_input().0;
 
         if !inp_seq.is_empty() {
             ique.extend(inp_seq.iter());

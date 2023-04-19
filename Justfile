@@ -45,17 +45,6 @@ qemu *ARGS:
         -semihosting-config enable=on,target=native \
         -kernel target/thumbv7m-none-eabi/debug/examples/{{ARGS}}
 
-# if binay doesn't fit in 256kB flash:
-qemu-release *ARGS:
-    cargo b --release --example {{ARGS}} --features "qemu"
-    cargo size --release --example {{ARGS}} --features "qemu" -- -B
-    qemu-system-arm \
-        -cpu cortex-m3 \
-        -machine lm3s6965evb \
-        -nographic \
-        -semihosting-config enable=on,target=native \
-        -kernel target/thumbv7m-none-eabi/release/examples/{{ARGS}}
-
 # runs QEMU with Gdb server
 qemu-gdbserv *ARGS:
     cargo b --example {{ARGS}} --features "qemu"

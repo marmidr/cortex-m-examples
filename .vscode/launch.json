@@ -9,14 +9,25 @@
         {
             "type": "cortex-debug",
             "request": "launch",
-            "name": "Debug (QEMU)",
+            "name": "Debug TuiMini (QEMU)",
             "servertype": "qemu",
             "cwd": "${workspaceRoot}",
             "preLaunchTask": "Cargo Build (debug)",
             "runToEntryPoint": "main",
-            // "executable": "./target/thumbv7m-none-eabi/debug/{{project-name}}",
-            /* Run `cargo build --example hello` and uncomment this line to run semi-hosting example */
             "executable": "./target/thumbv7m-none-eabi/debug/examples/tui_mini",
+            "cpu": "cortex-m3",
+            "machine": "lm3s6965evb",
+        },
+        {
+            "type": "cortex-debug",
+            "request": "launch",
+            "name": "Debug TuiFull (QEMU)",
+            "servertype": "qemu",
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Cargo Build (debug)",
+            "runToEntryPoint": "main",
+            /* Run `cargo build --example hello` and uncomment this line to run semi-hosting example */
+            "executable": "./target/thumbv7m-none-eabi/debug/examples/tui_full",
             "cpu": "cortex-m3",
             "machine": "lm3s6965evb",
         },

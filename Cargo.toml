@@ -33,6 +33,10 @@ panic-semihosting = { version = "0.6.0", features = ["exit"] }
 qemu = []
 # defaul = ["qemu"]
 
+[profile.dev]
+opt-level = 1 # necessary so the tui_full fit in the ROM
+debug = true
+
 [profile.release]
 codegen-units = 1 # better optimizations
 debug = true # symbols are nice and they don't increase the size on Flash

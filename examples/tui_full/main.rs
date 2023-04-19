@@ -235,9 +235,6 @@ fn tui() {
             rtwins::esc::FG_DEFAULT
         );
     }
-    // rtwins::tr_warn!("WARN MACRO 1");
-    // rtwins::tr_err!("ERR MACRO 1");
-    // rtwins::tr_debug!("DEBUG MACRO: X={} N={}", 42, "Warduna");
     rtwins::tr_flush!(&mut TERM.try_lock().unwrap());
 
     #[cfg(target_os = "linux")]

@@ -1,7 +1,7 @@
 //! # RTWins minimal demo app
 
-#![no_main]
-#![no_std]
+#![cfg_attr(target_os = "none", no_main)]
+#![cfg_attr(target_os = "none", no_std)]
 
 use rtwins::colors::{ColorBg, ColorFg};
 use rtwins::common::*;
@@ -18,15 +18,22 @@ use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 
+#[cfg(target_os = "linux")]
+mod input_libc_tty;
+#[cfg(target_os = "linux")]
+mod pal_std;
+
+#[cfg(target_os = "none")]
 use alloc_cortex_m::CortexMHeap;
 // use embedded_alloc::Heap; // TODO: linker error when used
+#[cfg(target_os = "none")]
 use cortex_m_rt::entry;
+#[cfg(target_os = "none")]
 use cortex_m_semihosting::debug;
-// use cortex_m_semihosting::hprint;
+#[cfg(target_os = "none")]
 use panic_semihosting as _;
-// use try_lock::TryLock;
 
-#[cfg(not(any(windows, unix)))]
+#[cfg(target_os = "none")]
 mod pal_semihosting;
 
 // ---------------------------------------------------------------------------------------------- //
@@ -177,43 +184,57 @@ impl rtwins::wgt::WindowState for MainWndState {
 // ---------------------------------------------------------------------------------------------- //
 
 // this is the allocator the application will use
+#[cfg(target_os = "none")]
 #[global_allocator]
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 // static HEAP: Heap = Heap::empty();
 
+#[cfg(target_os = "linux")]
+fn main() {
+    tui();
+}
+
+#[cfg(target_os = "none")]
 #[entry]
 fn main() -> ! {
-    // Initialize the allocator BEFORE you use it
-    unsafe {
-        const HEAP_SIZE: usize = 1024 * 2; // in bytes
-        ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE);
-    }
-
-    // {
-    //     use core::mem::MaybeUninit;
-    //     const HEAP_SIZE: usize = 1024 * 2;
-    //     static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-    //     unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE); }
-    // }
-
-    // start the TUI interface
     tui();
 
-    // exit QEMU
-    // NOTE do not run this on hardware; it can corrupt OpenOCD state
-    debug::exit(debug::EXIT_SUCCESS);
+    if cfg!(feature = "qemu") {
+        // exit QEMU
+        // NOTE do not run this on hardware; it can corrupt OpenOCD state
+        debug::exit(debug::EXIT_SUCCESS);
+    }
 
     loop {}
 }
 
 fn tui() {
+    // Initialize the allocator BEFORE you use it
+    #[cfg(target_os = "none")]
+    unsafe {
+        const HEAP_SIZE: usize = 1024 * 2; // in bytes
+        ALLOCATOR.init(cortex_m_rt::heap_start() as usize, HEAP_SIZE);
+    }
+
+    #[cfg(target_os = "none")]
     let cp = cortex_m::Peripherals::take().unwrap();
 
-    // replace default PAL with our own:
+    #[cfg(target_os = "none")]
     {
         let delay = cortex_m::delay::Delay::new(cp.SYST, 32_000_000);
-        let pal = Box::new(pal_semihosting::SemihostingPal::new(delay));
-        TERM.try_lock().unwrap().pal = pal;
+        TERM.try_lock().unwrap().pal = Box::new(pal_semihosting::SemihostingPal::new(delay));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // replace default PAL with our own:
+        TERM.try_lock().unwrap().pal = Box::new(pal_std::DemoPal::new());
+
+        // register function providing traces timestamp
+        rtwins::tr_set_timestr_function!(|| {
+            let local_time = chrono::Local::now();
+            local_time.format("%H:%M:%S%.3f ").to_string()
+        });
     }
 
     // create window state:
@@ -235,7 +256,8 @@ fn tui() {
     }
 
     rtwins::tr_info!("Press Ctrl-D to quit");
-    rtwins::tr_info!("Size of WND_MAIN_WGTS: {} B", core::mem::size_of_val(&WND_MAIN_WGTS));
+    rtwins::tr_info!("Size of WND_MAIN_WGTS: {} B",
+        core::mem::size_of_val(&WND_MAIN_WGTS));
 
     if cfg!(feature = "qemu") {
         rtwins::tr_info!(
@@ -246,22 +268,32 @@ fn tui() {
     }
     rtwins::tr_flush!(&mut TERM.try_lock().unwrap());
 
+    #[cfg(target_os = "linux")]
+    let mut inp = input_libc_tty::InputTty::new(None, 100);
+    #[cfg(target_os = "none")]
     let mut inp = pal_semihosting::InputSemiHost::new();
+
     let mut ique = rtwins::input_decoder::InputQue::default();
     let mut dec = rtwins::input_decoder::Decoder::default();
     let mut ii = rtwins::input::InputInfo::default();
 
+    #[allow(unused_labels)]
     'mainloop: loop  {
-        let inp_seq = inp.read_input().0;
+        let (inp_seq, q) = inp.read_input();
 
-        if !inp_seq.is_empty() {
+        if q {
+            rtwins::tr_warn!("Exit requested");
+            break;
+        }
+        else if !inp_seq.is_empty() {
             ique.extend(inp_seq.iter());
 
             while dec.decode_input_seq(&mut ique, &mut ii) > 0 {
                 // check for Ctrl+D
+                #[cfg(target_os = "none")]
                 if let InputEvent::Char(ref cb) = ii.evnt {
                     if cb.as_str() == "D" && ii.kmod.has_ctrl() {
-                        rtwins::tr_info!("Exit requested");
+                        rtwins::tr_warn!("Exit requested");
                         break 'mainloop;
                     }
                 }
